@@ -1,0 +1,115 @@
+﻿<Project>
+  <PropertyGroup>
+    <ManifestPath>$(ProjectDir)manifest.json</ManifestPath>
+    <ManifestPath Condition="'$(BeatSaberOutputType)' == 'Library'">$(ProjectDir)$(TargetName).manifest</ManifestPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(ManifestPath)" Condition="'$(BeatSaberOutputType)' != 'Library'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(ManifestPath)" CopyToOutputDirectory="Always" Condition="'$(BeatSaberOutputType)' == 'Library'" />
+  </ItemGroup>
+
+  <!--Get info about the project used by later targets -->
+  <Target Name="GetProjectInfo" AfterTargets="BeforeBuild">
+    <GetManifestInfo ManifestPath="$(ManifestPath)">
+      <Output TaskParameter="PluginVersion" PropertyName="PluginVersion" />
+      <Output TaskParameter="GameVersion" PropertyName="GameVersion" />
+      <Output TaskParameter="BasePluginVersion" PropertyName="BasePluginVersion" />
+    </GetManifestInfo>
+    
+    <PropertyGroup>
+      <Version>$(BasePluginVersion)</Version>
+      <FileVersion>$(BasePluginVersion)</FileVersion>
+      <InformationalVersion>$(PluginVersion)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
+  <!-- Set shared properties that can't be set in a top-level PropertyGroup (too early) -->
+  <Target Name="GetProperties">
+    <PropertyGroup>
+      <ArtifactDir>$(TargetDir)Artifact\</ArtifactDir>
+      <ArtifactTargetDir>$(ArtifactDir)Plugins</ArtifactTargetDir>
+    </PropertyGroup>
+    
+    <PropertyGroup Condition="'$(BeatSaberOutputType)' == 'Library'">
+      <ArtifactTargetDir>$(ArtifactDir)Libs</ArtifactTargetDir>
+    </PropertyGroup>
+  </Target>
+
+  <!-- Copy the assembly and PDB to the Artifact folder -->
+  <Target Name="CopyToArtifact" AfterTargets="AfterBuild" DependsOnTargets="GetProperties">
+    <Message Text="$(MSBuildProjectName) -&gt; $(ArtifactDir)" Importance="high" />
+
+    <MakeDir Directories="$(ArtifactDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ArtifactTargetDir)" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ArtifactTargetDir)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).xml" DestinationFolder="$(ArtifactTargetDir)" Condition="Exists('$(TargetDir)$(TargetName).xml')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).manifest" DestinationFolder="$(ArtifactDir)Plugins" Condition="Exists('$(TargetDir)$(TargetName).manifest')" />
+  </Target>
+
+  <Target Name="SetGitHubActionsOutput" AfterTargets="CopyToArtifact" Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <Message Text="Writing to GitHub output" Importance="high" />
+
+    <PropertyGroup>
+      <ArtifactName>$(ProjectName)-v$(PluginVersion)</ArtifactName>
+      <ArtifactName Condition="'$(Configuration)' != 'Release'">$(ArtifactName)-$(Configuration)</ArtifactName>
+    </PropertyGroup>
+    
+    <ItemGroup>
+      <LinesToWrite Include="artifact-name=$(ArtifactName)" />
+      <LinesToWrite Include="artifact-path=$(ArtifactDir)" />
+    </ItemGroup>
+
+    <WriteLinesToFile File="$(GITHUB_OUTPUT)" Lines="@(LinesToWrite)" />
+  </Target>
+
+  <!-- Copy the assembly and PDB to the Beat Saber folder -->
+  <Target Name="CopyToPlugins" AfterTargets="CopyToArtifact" Condition="'$(BeatSaberDir)' != '' AND '$(CI)' == '' AND '$(NCrunch)' != '1'">
+    <Message Text="$(MSBuildProjectName) -&gt; $(BeatSaberDir)" Importance="high" />
+
+    <ItemGroup>
+      <FilesToCopy Include="$(ArtifactDir)\**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(FilesToCopy)" DestinationFolder="$(BeatSaberDir)\%(RecursiveDir)" />
+  </Target>
+
+  <!-- Clean up artifact files -->
+  <Target Name="CleanArtifact" AfterTargets="Clean" DependsOnTargets="GetProperties">
+    <RemoveDir Directories="$(ArtifactDir)" />
+  </Target>
+
+  <UsingTask TaskName="DownloadUnityPackage" TaskFactory="TaskHostFactory" AssemblyFile="$(MSBuildThisFileDirectory)UnityPackages.Tasks\bin\$(Configuration)\UnityPackages.Tasks.dll" />
+
+  <!-- Download the Unity package from UPM -->
+  <Target Name="DownloadPackage" AfterTargets="BeforeBuild" DependsOnTargets="ResolveProjectReferences">
+    <DownloadUnityPackage Name="$(UnityPackageName)" Version="$(Version)" DestinationFolder="$(ProjectDir)" Condition="!Exists('$(ProjectDir)Runtime')" />
+
+    <ItemGroup>
+      <Compile Remove="Runtime\**\*.cs" />
+      <Compile Include="Runtime\**\*.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="$(ProjectDir)Runtime\**\*.dll" CopyToOutputDirectory="Always" />
+    </ItemGroup>
+  </Target>
+  
+  <!-- Copy the assembly and PDB to the Artifact folder -->
+  <Target Name="CopyNativeToArtifact" AfterTargets="CopyToArtifact">
+    <ItemGroup>
+      <NativeLibraryFiles Include="$(TargetDir)Runtime\windows\x64\*.dll" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(ArtifactDir)Libs\Native" />
+    <Copy SourceFiles="@(NativeLibraryFiles)" DestinationFolder="$(ArtifactDir)Libs\Native" />
+  </Target>
+
+  <!-- Clean up Unity package files -->
+  <Target Name="CleanPackage" AfterTargets="Clean">
+    <RemoveDir Directories="$(ProjectDir)Runtime" />
+  </Target>
+</Project>

@@ -1,0 +1,38 @@
+name: XR Hands
+
+on:
+  push:
+    paths:
+    - .github/workflows/unity-xr-hands.yml
+    - UnityPackages.sln
+    - Unity.XR.Hands/**
+    - UnityPackages.Tasks/**
+    branches:
+    - '**'
+    tags:
+    - 'unity-xr-hands/*'
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+    steps:
+    - name: Check out
+      uses: actions/checkout@v4
+
+    - name: Set up Beat Saber
+      uses: nicoco007/setup-beat-saber@main
+      with:
+        access-token: ${{ secrets.PRIVATE_GITHUB_TOKEN }}
+        manifest: ${{ github.workspace }}\Unity.XR.Hands\Unity.XR.Hands.manifest
+        tag-format: unity-xr-hands/v{0}
+
+    - name: Build Release
+      id: build-release
+      run: dotnet build ${{ github.workspace }}\Unity.XR.Hands\Unity.XR.Hands.csproj -c Release
+
+    - name: Upload Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build-release.outputs.artifact-name }}
+        path: ${{ steps.build-release.outputs.artifact-path }}
